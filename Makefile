@@ -13,7 +13,8 @@ DEV ?= /dev/$(notdir $(firstword $(foreach v,$(VENDOR), \
 TTY ?= /dev/$(notdir $(firstword $(foreach v,$(VENDOR), \
 		$(shell udevadm trigger -v -n -s tty -p ID_VENDOR=$(v)))))
 
-MFLAGS += -j0 --stats-depth=100
+MFLAGS += -j0
+#MFLAGS += --stats-depth=100
 ifdef VERBOSE
 MFLAGS += -v
 endif

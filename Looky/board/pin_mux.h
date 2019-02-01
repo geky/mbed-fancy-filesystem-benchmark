@@ -74,6 +74,7 @@ extern "C" {
 #define IOCON_PIO_MODE_PULLUP 0x20u     /*!<@brief Selects pull-up function */
 #define IOCON_PIO_OPENDRAIN_DI 0x00u    /*!<@brief Open drain is disabled */
 #define IOCON_PIO_SLEW_STANDARD 0x00u   /*!<@brief Standard mode, output slew rate control is enabled */
+#define IOCON_PIO_SLEW_FAST 0x0400u     /*!<@brief Fast mode, slew rate control is disabled */
 
 /*!
  * @brief Configures pin routing and optionally pin electrical features.
