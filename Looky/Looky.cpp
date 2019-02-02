@@ -11,6 +11,7 @@
 #include "pin_mux.h"
 #include "image.h"
 #include "Looky.h"
+#include "font.h"
 
 #define APP_LCD LCD
 #define LCD_PANEL_CLK 9000000
@@ -208,9 +209,9 @@ status_t APP_LCDC_Init(void)
     uint16_t *palette = (uint16_t*)malloc(256*sizeof(uint16_t));
     for (int i = 0; i < 256; i++) {
         palette[i] = (
-                ((((i & 0xe0) >> 3) | ((i & 0xe0) >> 6)) << 11) |
-                ((((i & 0x1c) << 1) | ((i & 0x1c) >> 2)) <<  5) |
-                ((((i & 0x03) << 3) | ((i & 0x03) << 1) | ((i & 0x03) >> 1)) << 0));
+                (((((i & 0xe0) >> 5)* 9)/2) << 11) |
+                (((((i & 0x1c) >> 2)* 9)/1) <<  5) |
+                (((((i & 0x03) >> 0)*21)/2) <<  0));
     }
     LCDC_SetPalette(APP_LCD, (uint32_t*)palette, 256/2);
     free(palette);
@@ -259,6 +260,24 @@ void APP_SetCursorPosition(int posX, int posY)
     posY -= 5;
 
     LCDC_SetCursorPosition(APP_LCD, posX, posY);
+}
+
+int windowputc(int x, int y, int c) {
+    c -= ' ';
+    for (int i = 0; i < FONT_WIDTH; i++) {
+        for (int j = 0; j < FONT_HEIGHT; j++) {
+            if ((font[c*FONT_WIDTH + i] >> j) & 1) {
+                frame[x+i + (y+j)*IMG_WIDTH] = 0xff;
+            }
+        }
+    }
+}
+
+int windowprint(int x, int y, const char *str) {
+    for (; *str; str++) {
+        windowputc(x, y, *str);
+        x += FONT_WIDTH;
+    }
 }
 
 int Looky::init() {
@@ -381,11 +400,21 @@ int Looky::init() {
         frame[(x  )%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x+1)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x+2)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x+3)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x+4)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x-1)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x-2)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x-3)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x-4)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x+1*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x+2*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x+3*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x+4*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x-1*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
         frame[(x-2*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x-3*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        frame[(x-4*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+
+        windowprint(10, 10, "Hello World!");
     }
 }
