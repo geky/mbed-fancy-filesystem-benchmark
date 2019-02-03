@@ -160,7 +160,7 @@ static void BOARD_InitPWM(void)
     SCTIMER_SetupPwm(SCT0, &pwmParam, kSCTIMER_CenterAlignedPwm, 1000U, CLOCK_GetFreq(kCLOCK_Sct), &event);
 }
 
-void APP_LCD_IRQHandler(void)
+extern "C" void LCD_IRQHandler(void)
 {
     uint32_t intStatus = LCDC_GetEnabledInterruptsPendingStatus(APP_LCD);
 
@@ -173,6 +173,7 @@ void APP_LCD_IRQHandler(void)
     __DSB();
 }
 
+uint8_t *frames[2];
 uint8_t *frame;
 
 status_t APP_LCDC_Init(void)
@@ -185,7 +186,9 @@ status_t APP_LCDC_Init(void)
 
     //frame = (uint8_t*)malloc((IMG_HEIGHT*IMG_WIDTH*3)/2);
     //MBED_ASSERT(frame);
-    frame = (uint8_t*)0xa0000000;
+    frames[0] = (uint8_t*)(0xa0000000 + 0);
+    frames[1] = (uint8_t*)(0xa0000000 + (IMG_HEIGHT*IMG_WIDTH));
+    frame = frames[0];
     //frame = (uint8_t*)malloc(IMG_HEIGHT*IMG_WIDTH);
 
     lcdConfig.panelClock_Hz = LCD_PANEL_CLK;
@@ -229,7 +232,7 @@ status_t APP_LCDC_Init(void)
     /* Trigger interrupt at start of every vertical back porch. */
     LCDC_SetVerticalInterruptMode(APP_LCD, kLCDC_StartOfBackPorch);
     LCDC_EnableInterrupts(APP_LCD, kLCDC_VerticalCompareInterrupt);
-    // NVIC_EnableIRQ(APP_LCD_IRQn);
+    NVIC_EnableIRQ(APP_LCD_IRQn);
 
     //LCDC_EnableCursor(APP_LCD, true);
 
@@ -271,6 +274,7 @@ int windowputc(int x, int y, int c) {
             }
         }
     }
+    return 0;
 }
 
 int windowprint(int x, int y, const char *str) {
@@ -278,6 +282,7 @@ int windowprint(int x, int y, const char *str) {
         windowputc(x, y, *str);
         x += FONT_WIDTH;
     }
+    return 0;
 }
 
 int Looky::init() {
@@ -354,7 +359,11 @@ int Looky::init() {
 
     printf("=== hi ===\n");
 
+    Timer timer;
+    timer.start();
+
     int ctr = 0;
+    int fcounter = 0;
     for (;;)
     {
         if (kStatus_Success == FT5406_GetSingleTouch(&touch_handle, &touch_event, &cursorPosX, &cursorPosY))
@@ -383,38 +392,62 @@ int Looky::init() {
 //        }
 //        //}
 
+//        for (int j = 0; j < (IMG_WIDTH*IMG_HEIGHT)/8; j++) {
+//            uint64_t x = ((uint64_t*)frame)[j];
+//            if (!x) { continue; }
+//            uint8_t *f = (uint8_t*)&x;
+//            for (int i = 0; i < 8; i++) {
+//                f[i] = (
+//                        ((((f[i]&0xe0) >> 5) ? ((f[i]&0xe0) >> 5)-!((ctr++)&0x1) : 0) << 5) |
+//                        ((((f[i]&0x1c) >> 2) ? ((f[i]&0x1c) >> 2)-!((ctr++)&0x1) : 0) << 2) |
+//                        ((((f[i]&0x03) >> 0) ? ((f[i]&0x03) >> 0)-!((ctr++)&0x3) : 0) << 0));
+//            }
+//            ((uint64_t*)frame)[j] = x;
+//        }
+//
+//        int x = rand() % (IMG_WIDTH*IMG_HEIGHT);
+//        frame[(x  )%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+1)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+2)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+3)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+4)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-1)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-2)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-3)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-4)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+1*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+2*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+3*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x+4*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-1*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-2*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-3*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+//        frame[(x-4*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+
         for (int j = 0; j < (IMG_WIDTH*IMG_HEIGHT)/8; j++) {
-            uint64_t x = ((uint64_t*)frame)[j];
-            if (!x) { continue; }
+            uint64_t x;
             uint8_t *f = (uint8_t*)&x;
             for (int i = 0; i < 8; i++) {
-                f[i] = (
-                        ((((f[i]&0xe0) >> 5) ? ((f[i]&0xe0) >> 5)-!((ctr++)&0x1) : 0) << 5) |
-                        ((((f[i]&0x1c) >> 2) ? ((f[i]&0x1c) >> 2)-!((ctr++)&0x1) : 0) << 2) |
-                        ((((f[i]&0x03) >> 0) ? ((f[i]&0x03) >> 0)-!((ctr++)&0x3) : 0) << 0));
+                f[i] = (((8*j+i)%IMG_WIDTH) + (((8*j+i)/IMG_WIDTH)%IMG_HEIGHT) + ctr) / 10;
             }
             ((uint64_t*)frame)[j] = x;
         }
-
-        int x = rand() % (IMG_WIDTH*IMG_HEIGHT);
-        frame[(x  )%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+1)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+2)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+3)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+4)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-1)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-2)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-3)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-4)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+1*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+2*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+3*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x+4*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-1*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-2*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-3*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
-        frame[(x-4*IMG_WIDTH)%(IMG_WIDTH*IMG_HEIGHT)] = 0xff;
+        ctr += 1;
 
         windowprint(10, 10, "Hello World!");
+
+        int delta = timer.read_ms();
+        timer.reset();
+        char buffer[128];
+        sprintf(buffer, "FPS: %d (%dms)", 1000/(delta|1), delta);
+        windowprint(10, 18, buffer);
+
+        LCDC_SetPanelAddr(APP_LCD, kLCDC_UpperPanel, (uint32_t)frame);
+        fcounter = (fcounter+1)&1;
+        frame = frames[fcounter];
+
+        s_frameEndFlag = false;
+        while (!s_frameEndFlag) { __WFI(); }
+        memset(frame, 0, IMG_WIDTH*IMG_HEIGHT);
     }
 }
