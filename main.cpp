@@ -30,11 +30,119 @@
 
 /*  Standard C Included Files */
 #include "mbed.h"
-#include "Looky.h"
+#include "LookyTouchy.h"
+#include "GUI.h"
 
-Looky looky;
+LookyTouchy lt;
+enum {
+    CONSOLE_MODE,
+    STARS_MODE,
+    RAINBOW_MODE,
+};
+int mode = STARS_MODE;
 
-int main(void)
-{
-    return looky.init();
+void change_mode() {
+    mode = (mode+1) % 3;
+}
+
+GUI gui(&lt);
+GUILabel title(&gui, "Hello World!");
+GUIFPS fps(&gui);
+GUISeparator sep(&gui);
+GUIButton button(&gui, "PUSH ME", change_mode);
+
+
+struct Rainbow : public Thingy {
+    uint64_t *buffer;
+    int ctr;
+
+    virtual int init(const Frame &f) {
+        buffer = (uint64_t*)lt.alloc(f.w()*f.h());
+        return 0;
+    }
+
+    virtual void look(const Frame &f, int dt) {
+        if (mode != RAINBOW_MODE) {
+            return;
+        }
+
+        for (int j = 0; j < (f.w()*f.h())/8; j++) {
+            uint64_t x64;
+            uint8_t *x8 = (uint8_t*)&x64;
+            for (int i = 0; i < 8; i++) {
+                x8[i] = ((8*j+i)%f.w() + ((8*j+i)/f.w()) + ctr) / 10;
+            }
+            buffer[j] = x64;
+        }
+        ctr += 1;
+
+        f.putbuffer(0, 0, f.w(), f.h(), buffer);
+    }
+};
+
+
+struct Stars : public Thingy {
+    uint64_t *buffer;
+    int ctr;
+
+    virtual int init(const Frame &f) {
+        buffer = (uint64_t*)lt.alloc(f.w()*f.h());
+        return 0;
+    }
+
+    virtual void look(const Frame &f, int dt) {
+        if (mode != STARS_MODE) {
+            return;
+        }
+
+        for (int j = 0; j < (f.w()*f.h())/8; j++) {
+            uint64_t x64 = buffer[j];
+            if (!x64) { continue; }
+
+            uint8_t *x8 = (uint8_t*)&x64;
+            for (int i = 0; i < 8; i++) {
+                x8[i] = (
+                    ((((x8[i]&0xe0) >> 5) ? ((x8[i]&0xe0) >> 5)-!((ctr++)&0x1) : 0) << 5) |
+                    ((((x8[i]&0x1c) >> 2) ? ((x8[i]&0x1c) >> 2)-!((ctr++)&0x1) : 0) << 2) |
+                    ((((x8[i]&0x03) >> 0) ? ((x8[i]&0x03) >> 0)-!((ctr++)&0x3) : 0) << 0));
+            }
+
+            buffer[j] = x64;
+        }
+
+        int x = rand() % (f.w()*f.h());
+        uint8_t *b = (uint8_t*)buffer;
+        b[(x  )%(f.w()*f.h())] = 0xff;
+        b[(x+1)%(f.w()*f.h())] = 0xff;
+        b[(x+2)%(f.w()*f.h())] = 0xff;
+        b[(x+3)%(f.w()*f.h())] = 0xff;
+        b[(x+4)%(f.w()*f.h())] = 0xff;
+        b[(x-1)%(f.w()*f.h())] = 0xff;
+        b[(x-2)%(f.w()*f.h())] = 0xff;
+        b[(x-3)%(f.w()*f.h())] = 0xff;
+        b[(x-4)%(f.w()*f.h())] = 0xff;
+        b[(x+1*f.w())%(f.w()*f.h())] = 0xff;
+        b[(x+2*f.w())%(f.w()*f.h())] = 0xff;
+        b[(x+3*f.w())%(f.w()*f.h())] = 0xff;
+        b[(x+4*f.w())%(f.w()*f.h())] = 0xff;
+        b[(x-1*f.w())%(f.w()*f.h())] = 0xff;
+        b[(x-2*f.w())%(f.w()*f.h())] = 0xff;
+        b[(x-3*f.w())%(f.w()*f.h())] = 0xff;
+        b[(x-4*f.w())%(f.w()*f.h())] = 0xff;
+
+        f.putbuffer(0, 0, f.w(), f.h(), buffer);
+    }
+};
+
+int main(void) {
+    lt.add(380, 0, lt.w()-380, lt.h(), &gui);
+    lt.add(  0, 0,        380, lt.h(), new Stars);
+    lt.add(  0, 0,        380, lt.h(), new Rainbow);
+
+    printf("HI\n");
+
+    int err = lt.start();
+    assert(!err);
+
+    return 0;
 }
