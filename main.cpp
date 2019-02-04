@@ -52,6 +52,77 @@ GUISeparator sep(&gui);
 GUIButton button(&gui, "PUSH ME", change_mode);
 
 
+struct Console : public Thingy, public FileHandle {
+    char *buffer;
+    int x;
+    int y;
+    int w;
+    int h;
+
+    virtual int init(const Frame &f) {
+        x = 0;
+        y = 0;
+        w = f.w() / 5;
+        h = f.h() / 11;
+
+        buffer = (char *)lt.alloc(w*h);
+        memset(buffer, 0, w*h);
+        return 0;
+    }
+
+    virtual void look(const Frame &f, int dt) {
+        if (mode != CONSOLE_MODE) {
+            return;
+        }
+
+        for (int i = 0; i < y; i++) {
+            f.puts(10, 5+i*11, &buffer[i*w]);
+        }
+    }
+
+    virtual ssize_t write(const void *buf, size_t size) {
+        for (int i = 0; i < size; i++) {
+            if (((const char *)buf)[i] == '\n' || x >= w) {
+                x = 0;
+                y += 1;
+            } else {
+                buffer[y*w + x] = ((const char *)buf)[i];
+                buffer[y*w + x + 1] = '\0';
+                x += 1;
+            }
+        }
+
+        if (y == h) {
+            memmove(buffer, buffer+w, w*h - w);
+            y -= 1;
+        }
+
+        return size;
+    }
+
+    virtual ssize_t read(void *buffer, size_t size) {
+        return -ENOSYS;
+    }
+
+    virtual off_t seek(off_t offset, int whence = SEEK_SET) {
+        return -ESPIPE;
+    }
+
+    virtual off_t size() {
+        return -ESPIPE;
+    }
+
+    virtual int close()
+    {
+        return 0;
+    }
+};
+
+Console console;
+FileHandle *mbed::mbed_override_console(int fd) {
+    return &console;
+}
+
 struct Rainbow : public Thingy {
     uint64_t *buffer;
     int ctr;
@@ -136,6 +207,7 @@ struct Stars : public Thingy {
 
 int main(void) {
     lt.add(380, 0, lt.w()-380, lt.h(), &gui);
+    lt.add(  0, 0,        380, lt.h(), &console);
     lt.add(  0, 0,        380, lt.h(), new Stars);
     lt.add(  0, 0,        380, lt.h(), new Rainbow);
 
@@ -143,6 +215,16 @@ int main(void) {
 
     int err = lt.start();
     assert(!err);
+
+    printf("Hello!\n");
+    printf("Test test test\n");
+    printf("Is this thing on?\n");
+
+    int i = 0;
+    while (true) {
+        printf("ping %d\n", i++);
+        wait_ms(100);
+    }
 
     return 0;
 }
