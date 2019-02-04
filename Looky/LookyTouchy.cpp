@@ -134,8 +134,8 @@ status_t LookyTouchy_LCD_Init(void)
     uint16_t *palette = (uint16_t*)malloc(256*sizeof(uint16_t));
     for (int i = 0; i < 256; i++) {
         palette[i] = (
-                (((((i & 0xe0) >> 5)* 9)/2) << 11) |
-                (((((i & 0x1c) >> 2)* 9)/1) <<  5) |
+                (((((i & 0xe0) >> 5)* 9)/2) << 10) |
+                (((((i & 0x1c) >> 2)* 9)/2) <<  5) |
                 (((((i & 0x03) >> 0)*21)/2) <<  0));
     }
     LCDC_SetPalette(LCD, (uint32_t*)palette, 256/2);
