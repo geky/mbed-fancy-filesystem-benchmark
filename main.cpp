@@ -32,27 +32,36 @@
 #include "mbed.h"
 #include "LookyTouchy.h"
 #include "GUI.h"
+#include "math.h"
+
+#include "LittleFileSystem2.h"
+#include "QSPIFBlockDevice.h"
 
 LookyTouchy lt;
 enum {
+    BDOPS_MODE,
+    BDWEAR_MODE,
+    BDUSE_MODE,
     CONSOLE_MODE,
+    MODE_COUNT,
+
     RAIN_MODE,
     STARS_MODE,
     RAINBOW_MODE,
 
-    MODE_COUNT,
+    //MODE_COUNT,
 };
-int mode = RAIN_MODE;
+int mode = 0;
 
 void change_mode() {
     mode = (mode+1) % MODE_COUNT;
 }
 
 GUI gui(&lt);
-GUILabel title(&gui, "Hello World!");
+GUILabel title(&gui, "LittleFS v2 demo");
 GUIFPS fps(&gui);
 GUISeparator sep(&gui);
-GUIButton button(&gui, "PUSH ME", change_mode);
+GUIButton button(&gui, "Change view", change_mode);
 
 
 struct Console : public Thingy, public FileHandle {
@@ -302,24 +311,414 @@ struct Rain : public Thingy {
     }
 };
 
+// Passthrough wrapper to avoid copy paste
+struct PassthroughBlockDevice : public BlockDevice {
+    BlockDevice *_bd;
+
+    PassthroughBlockDevice(BlockDevice *bd)
+        : _bd(bd) {
+    }
+
+    virtual int init() {
+        return _bd->init();
+    }
+
+    virtual int deinit() {
+        return _bd->deinit();
+    }
+
+    virtual int sync() {
+        return _bd->sync();
+    }
+
+    virtual int read(void *b, bd_addr_t addr, bd_size_t size) {
+        return _bd->read(b, addr, size);
+    }
+
+    virtual int program(const void *b, bd_addr_t addr, bd_size_t size) {
+        return _bd->program(b, addr, size);
+    }
+
+    virtual int erase(bd_addr_t addr, bd_size_t size) {
+        return _bd->erase(addr, size);
+    }
+
+    virtual bd_size_t get_read_size() const {
+        return _bd->get_read_size();
+    }
+
+    virtual bd_size_t get_program_size() const {
+        return _bd->get_program_size();
+    }
+
+    virtual bd_size_t get_erase_size() const {
+        return _bd->get_erase_size();
+    }
+
+    virtual bd_size_t get_erase_size(bd_addr_t addr) const {
+        return _bd->get_erase_size(addr);
+    }
+
+    virtual int get_erase_value() const {
+        return _bd->get_erase_value();
+    }
+
+    virtual bd_size_t size() const {
+        return _bd->size();
+    }
+
+    virtual const char *get_type() const {
+        if (_bd != NULL) {
+            return _bd->get_type();
+        }
+
+        return NULL;
+    }
+};
+
+struct BDOps : public Thingy, public PassthroughBlockDevice {
+    uint32_t w;
+    uint32_t h;
+    uint32_t size;
+    uint8_t *reads;
+    uint8_t *progs;
+    uint8_t *erases;
+
+    BDOps(BlockDevice *bd)
+        : PassthroughBlockDevice(bd) {
+    }
+
+    virtual int init(const Frame &f) {
+        int err = _bd->init();
+        if (err) {
+            return err;
+        }
+
+        size = _bd->size() / _bd->get_erase_size();
+
+        w = (int)ceil(sqrt(size));
+        h = w;
+        size = w*h;
+
+        reads  = (uint8_t*)malloc(size);
+        memset(reads, 0, size);
+        progs  = (uint8_t*)malloc(size);
+        memset(progs, 0, size);
+        erases = (uint8_t*)malloc(size);
+        memset(erases, 0, size);
+        return 0;
+    }
+
+    virtual void look(const Frame &f, int dt) {
+        if (mode != BDOPS_MODE) {
+            return;
+        }
+
+        int dx = f.w() / w;
+        int dy = f.h() / h;
+
+        for (int i = 0; i < w; i++) {
+            for (int j = 0; j < h; j++) {
+                uint8_t r = reads[i+j*w];
+                uint8_t p = progs[i+j*w];
+                uint8_t e = erases[i+j*w];
+                uint8_t c = ((7&(r>>5))<<3) + ((3&(p>>6))<<0) + ((7&(e>>5))<<5);
+                f.putrect(dx*i, dy*j, dx, dy, c);
+            }
+        }
+
+        for (int i = 0; i < size; i++) {
+            reads[i] = reads[i] > 20 ? reads[i] - 20 : 0;
+            progs[i] = progs[i] > 20 ? progs[i] - 20 : 0;
+            erases[i] = erases[i] > 20 ? erases[i] - 20 : 0;
+        }
+    }
+
+    virtual int read(void *b, bd_addr_t addr, bd_size_t size) {
+        reads[addr / _bd->get_erase_size()] = 0xff;
+        return _bd->read(b, addr, size);
+    }
+
+    virtual int program(const void *b, bd_addr_t addr, bd_size_t size) {
+        progs[addr / _bd->get_erase_size()] = 0xff;
+        return _bd->program(b, addr, size);
+    }
+
+    virtual int erase(bd_addr_t addr, bd_size_t size) {
+        erases[addr / _bd->get_erase_size()] = 0xff;
+        return _bd->erase(addr, size);
+    }
+};
+
+struct BDWear : public Thingy, public PassthroughBlockDevice {
+    uint32_t w;
+    uint32_t h;
+    uint32_t size;
+    uint32_t *wear;
+
+    BDWear(BlockDevice *bd)
+        : PassthroughBlockDevice(bd) {
+    }
+
+    virtual int init(const Frame &f) {
+        int err = _bd->init();
+        if (err) {
+            return err;
+        }
+
+        size = _bd->size() / _bd->get_erase_size();
+
+        w = (int)ceil(sqrt(size));
+        h = w;
+        size = w*h;
+
+        wear = (uint32_t*)malloc(size*sizeof(uint32_t));
+        memset(wear, 0, size*sizeof(uint32_t));
+        return 0;
+    }
+
+    virtual void look(const Frame &f, int dt) {
+        if (mode != BDWEAR_MODE) {
+            return;
+        }
+
+        int dx = f.w() / w;
+        int dy = f.h() / h;
+
+        uint32_t min = 0xffffffff;
+        uint32_t max = 0;
+
+        for (int i = 0; i < size; i++) {
+            if (wear[i] > max) max = wear[i];
+            if (wear[i] < min) min = wear[i];
+        }
+
+        for (int i = 0; i < w; i++) {
+            for (int j = 0; j < h; j++) {
+                uint8_t C[16] = {
+                    0x24, 0x24, 0x48, 0x6c,
+                    0x90, 0xb4, 0xd8, 0xfc,
+                    0xf8, 0xf4, 0xf0, 0xec,
+                    0xe8, 0xe4, 0xe0, 0xe0,
+                };
+
+                //uint8_t w = (uint8_t)((15-1)*((wear[i+j*w]-min) / (float)(max-min)));
+                uint8_t c = (uint8_t)(7*((wear[i+j*w]-min) / (float)(max-min))) << 5;
+                f.putrect(dx*i, dy*j, dx, dy, wear[i+j*w] == 0 ? 0 : C[c >> 4]);
+            }
+        }
+    }
+
+    virtual int erase(bd_addr_t addr, bd_size_t size) {
+        wear[addr / _bd->get_erase_size()] += 1;
+        return _bd->erase(addr, size);
+    }
+};
+
+struct BDUse : public Thingy {
+    uint32_t w;
+    uint32_t h;
+    uint32_t size;
+    uint8_t *use;
+    BlockDevice *_bd;
+    LittleFileSystem2 *_lfs;
+
+    BDUse(BlockDevice *bd, LittleFileSystem2 *lfs)
+        : _bd(bd), _lfs(lfs) {
+    }
+
+    virtual int init(const Frame &f) {
+        int err = _bd->init();
+        if (err) {
+            return err;
+        }
+
+        size = _bd->size() / _bd->get_erase_size();
+
+        w = (int)ceil(sqrt(size));
+        h = w;
+        size = w*h;
+
+        use = (uint8_t*)malloc(size);
+        return 0;
+    }
+
+    static int scan(void *p, lfs2_block_t block) {
+        uint8_t *use = (uint8_t*)p;
+        use[block] = true;
+        return 0;
+    }
+
+    virtual void look(const Frame &f, int dt) {
+        if (mode != BDUSE_MODE) {
+            return;
+        }
+
+        int dx = f.w() / w;
+        int dy = f.h() / h;
+
+        memset(use, 0, size);
+        _lfs->_mutex.lock();
+        int err = lfs2_fs_traverse(&_lfs->_lfs, scan, use);
+        _lfs->_mutex.unlock();
+        assert(!err);
+
+        for (int i = 0; i < w; i++) {
+            for (int j = 0; j < h; j++) {
+                if (use[i+j*w]) {
+                    f.putrect(dx*i, dy*j, dx, dy, 0xb7);
+                }
+            }
+        }
+    }
+};
+
+//QSPIFBlockDevice rawbd(
+//    QSPI_FLASH1_IO0,
+//    QSPI_FLASH1_IO1,
+//    QSPI_FLASH1_IO2,
+//    QSPI_FLASH1_IO3,
+//    QSPI_FLASH1_SCK,
+//    QSPI_FLASH1_CSN,
+//    QSPIF_POLARITY_MODE_0);
+HeapBlockDevice rawbd(800*128, 1, 1, 128);
+BDOps bdops(&rawbd);
+BDWear bdwear(&bdops);
+BlockDevice &bd = bdwear;
+
+LittleFileSystem2 fs(NULL, NULL, 128, 10, 16, 256);
+
+BDUse bduse(&rawbd, &fs);
+
 int main(void) {
     lt.add(380, 0, lt.w()-380, lt.h(), &gui);
     lt.add(  0, 0,        380, lt.h(), &console);
-    lt.add(  0, 0,        380, lt.h(), new Stars);
-    lt.add(  0, 0,        380, lt.h(), new Rainbow);
-    lt.add(  0, 0,        380, lt.h(), new Rain);
+    lt.add(  0, 0,        380, lt.h(), &bdops);
+    lt.add(  0, 0,        380, lt.h(), &bdwear);
+    lt.add(  0, 0,        380, lt.h(), &bduse);
+//    lt.add(  0, 0,        380, lt.h(), new Stars);
+//    lt.add(  0, 0,        380, lt.h(), new Rainbow);
+//    lt.add(  0, 0,        380, lt.h(), new Rain);
 
     int err = lt.start();
     assert(!err);
 
-    printf("Hello!\n");
-    printf("Test test test\n");
-    printf("Is this thing on?\n");
+//    printf("Hello!\n");
+//    printf("Test test test\n");
+//    printf("Is this thing on?\n");
+//
+    printf("formatting...\n");
+    err = fs.reformat(&bd);
+    printf("formatted: %d\n", err);
+
+    printf("mounting...\n");
+    err = fs.mount(&bd);
+    printf("mounted: %d\n", err);
+
+    printf("sanity test...\n");
+    {
+//        err = fs.mkdir("tests", 0777);
+//        printf("mkdir: %d\n", err);
+//
+        File f;
+        err = f.open(&fs, "test.txt", O_WRONLY | O_CREAT | O_TRUNC);
+        printf("open: %d\n", err);
+        err = f.write("Hello world!", strlen("Hello World!"));
+        printf("write: %d\n", err);
+        err = f.close();
+        printf("close: %d\n", err);
+        err = f.open(&fs, "test.txt", O_RDONLY);
+        printf("open: %d\n", err);
+        char buffer[64];
+        err = f.read(buffer, 64);
+        printf("read: %d\n", err);
+        err = f.close();
+        printf("close: %d\n", err);
+        printf("sanity test: %.64s\n", buffer);
+    }
+//    {
+//        err = fs.mkdir("tests", 0777);
+//        printf("mkdir %d\n", err);
+//        wait_ms(1000);
+//    }
+//    {
+//        File f;
+//        err = f.open(&fs, "test2.txt", O_WRONLY | O_CREAT | O_TRUNC);
+//        printf("open: %d\n", err);
+//        wait_ms(1000);
+//        err = f.write("Hello world!", strlen("Hello World!"));
+//        printf("write: %d\n", err);
+//        err = f.close();
+//        printf("close: %d\n", err);
+//        err = f.open(&fs, "test.txt", O_RDONLY);
+//        printf("open: %d\n", err);
+//        char buffer[64];
+//        err = f.read(buffer, 64);
+//        printf("read: %d\n", err);
+//        err = f.close();
+//        printf("close: %d\n", err);
+//        printf("sanity test: %.64s\n", buffer);
+//    }
+
+    //const char *names[] = {"test0", "test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9"};
+    const char *names[] = {
+        "test0",
+        "test1",
+        "test2",
+        "test3",
+        "test4",
+        "test5",
+        "test6",
+        "test7",
+        "test8",
+        "test9"
+    };
 
     int i = 0;
     while (true) {
-        printf("ping %d\n", i++);
-        wait_ms(100);
+        for (int j = 0; j < 10; j++) {
+            if (i % (3*j+1) != 0) {
+                continue;
+            }
+            int size = 1 << ((rand() % 10)+2);
+            File f;
+            const char *name = names[j];
+            err = f.open(&fs, name, O_WRONLY | O_CREAT | O_TRUNC);
+            assert(!err);
+            for (int k = 0; k < size/32; k++) {
+                uint8_t buffer[32];
+                for (int l = 0; l < 32; l++) {
+                    buffer[l] = rand() & 0xff;
+                }
+                err = f.write(buffer, 32);
+                assert(err >= 0);
+            }
+            err = f.close();
+            assert(!err);
+        }
+
+        for (int j = 0; j < 10; j++) {
+            if (i % (j+1) != 0) {
+                continue;
+            }
+            File f;
+            const char *name = names[j];
+            err = f.open(&fs, name, O_RDONLY);
+            while (true) {
+                uint8_t buffer[32];
+                err = f.read(buffer, 32);
+                assert(err >= 0);
+                if (err < 32) {
+                    break;
+                }
+            }
+            err = f.close();
+            assert(!err);
+        }
+
+        //printf("completed round %d\n", i);
+        //wait_ms(1000);
+        i++;
     }
 
     return 0;
